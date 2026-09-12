@@ -25,10 +25,16 @@ import stroom.util.time.StroomDuration;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
+
+import java.util.Objects;
 
 @JsonPropertyOrder(alphabetic = true)
 public class AuthorisationConfig extends AbstractConfig implements IsStroomConfig, HasDbConfig {
+
+    public static final String PROP_NAME_LOG_USER_IN_MDC = "logUserInMdc";
+    private static final boolean DEFAULT_LOG_USER_IN_MDC = false;
 
     private final CacheConfig appPermissionIdCache;
     private final CacheConfig docTypeIdCache;
@@ -40,6 +46,7 @@ public class AuthorisationConfig extends AbstractConfig implements IsStroomConfi
     private final CacheConfig userInfoByUuidCache;
     private final CacheConfig userDocumentPermissionsCache;
     private final AuthorisationDbConfig dbConfig;
+    private final boolean logUserInMdc;
 
     public AuthorisationConfig() {
         appPermissionIdCache = CacheConfig.builder()
@@ -88,6 +95,7 @@ public class AuthorisationConfig extends AbstractConfig implements IsStroomConfi
                 .expireAfterAccess(StroomDuration.ofMinutes(10))
                 .build();
         dbConfig = new AuthorisationDbConfig();
+        logUserInMdc = DEFAULT_LOG_USER_IN_MDC;
     }
 
     @JsonCreator
@@ -100,7 +108,8 @@ public class AuthorisationConfig extends AbstractConfig implements IsStroomConfi
             @JsonProperty("userByUuidCache") final CacheConfig userByUuidCache,
             @JsonProperty("userInfoByUuidCache") final CacheConfig userInfoByUuidCache,
             @JsonProperty("userDocumentPermissionsCache") final CacheConfig userDocumentPermissionsCache,
-            @JsonProperty("db") final AuthorisationDbConfig dbConfig) {
+            @JsonProperty("db") final AuthorisationDbConfig dbConfig,
+            @JsonProperty(PROP_NAME_LOG_USER_IN_MDC) final Boolean logUserInMdc) {
         this.appPermissionIdCache = appPermissionIdCache;
         this.docTypeIdCache = docTypeIdCache;
         this.userGroupsCache = userGroupsCache;
@@ -110,6 +119,7 @@ public class AuthorisationConfig extends AbstractConfig implements IsStroomConfi
         this.userInfoByUuidCache = userInfoByUuidCache;
         this.userDocumentPermissionsCache = userDocumentPermissionsCache;
         this.dbConfig = dbConfig;
+        this.logUserInMdc = Objects.requireNonNullElse(logUserInMdc, DEFAULT_LOG_USER_IN_MDC);
     }
 
     public CacheConfig getAppPermissionIdCache() {
@@ -144,6 +154,13 @@ public class AuthorisationConfig extends AbstractConfig implements IsStroomConfi
         return userDocumentPermissionsCache;
     }
 
+    @JsonProperty(PROP_NAME_LOG_USER_IN_MDC)
+    @JsonPropertyDescription("Add currentUser and originalUser values to the logging MDC while running as a user. " +
+                             "The values are only emitted when referenced by the configured log format.")
+    public boolean isLogUserInMdc() {
+        return logUserInMdc;
+    }
+
     @Override
     @JsonProperty("db")
     public AuthorisationDbConfig getDbConfig() {
@@ -162,6 +179,7 @@ public class AuthorisationConfig extends AbstractConfig implements IsStroomConfi
                ", userInfoByUuidCache=" + userInfoByUuidCache +
                ", userDocumentPermissionsCache=" + userDocumentPermissionsCache +
                ", dbConfig=" + dbConfig +
+               ", logUserInMdc=" + logUserInMdc +
                '}';
     }
 }

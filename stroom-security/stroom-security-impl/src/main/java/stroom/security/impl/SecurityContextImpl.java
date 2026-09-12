@@ -35,7 +35,9 @@ import stroom.util.shared.PermissionException;
 import stroom.util.shared.UserRef;
 
 import jakarta.inject.Inject;
+import jakarta.inject.Provider;
 import jakarta.inject.Singleton;
+import org.slf4j.MDC;
 
 import java.util.EnumSet;
 import java.util.HashSet;
@@ -49,6 +51,8 @@ class SecurityContextImpl implements SecurityContext {
 
     private static final LambdaLogger LOGGER = LambdaLoggerFactory.getLogger(SecurityContextImpl.class);
     private static final AppPermissionSet ADMIN_APP_PERMISSIONS = AppPermission.ADMINISTRATOR.asAppPermissionSet();
+    static final String MDC_CURRENT_USER = "currentUser";
+    static final String MDC_ORIGINAL_USER = "originalUser";
 
     private final ThreadLocal<Boolean> checkTypeThreadLocal = ThreadLocal.withInitial(() -> Boolean.TRUE);
 
@@ -58,6 +62,7 @@ class SecurityContextImpl implements SecurityContext {
     private final UserCache userCache;
     private final UserAppPermissionsCache userAppPermissionsCache;
     private final UserIdentityFactory userIdentityFactory;
+    private final Provider<AuthorisationConfig> authorisationConfigProvider;
 
     @Inject
     SecurityContextImpl(
@@ -66,13 +71,15 @@ class SecurityContextImpl implements SecurityContext {
             final UserGroupsCache userGroupsCache,
             final UserCache userCache,
             final UserAppPermissionsCache userAppPermissionsCache,
-            final UserIdentityFactory userIdentityFactory) {
+            final UserIdentityFactory userIdentityFactory,
+            final Provider<AuthorisationConfig> authorisationConfigProvider) {
         this.userDocumentPermissionsCache = userDocumentPermissionsCache;
         this.userDocumentCreatePermissionsCache = userDocumentCreatePermissionsCache;
         this.userGroupsCache = userGroupsCache;
         this.userCache = userCache;
         this.userAppPermissionsCache = userAppPermissionsCache;
         this.userIdentityFactory = userIdentityFactory;
+        this.authorisationConfigProvider = authorisationConfigProvider;
     }
 
     @Override
@@ -142,10 +149,50 @@ class SecurityContextImpl implements SecurityContext {
         userIdentityFactory.refresh(userIdentity);
         // Push the user.
         CurrentUserState.push(userIdentity);
+        updateUserMdcAfterPush(userIdentity);
     }
 
     private void popUser() {
         CurrentUserState.pop();
+        updateUserMdcAfterPop();
+    }
+
+    private void updateUserMdcAfterPush(final UserIdentity userIdentity) {
+        if (!isUserMdcEnabled()) {
+            MDC.remove(MDC_CURRENT_USER);
+            MDC.remove(MDC_ORIGINAL_USER);
+            return;
+        }
+
+        final String user = userIdentity.getUserIdentityForAudit();
+        if (MDC.get(MDC_ORIGINAL_USER) == null) {
+            MDC.put(MDC_ORIGINAL_USER, user);
+        }
+        MDC.put(MDC_CURRENT_USER, user);
+    }
+
+    private void updateUserMdcAfterPop() {
+        if (!isUserMdcEnabled()) {
+            MDC.remove(MDC_CURRENT_USER);
+            MDC.remove(MDC_ORIGINAL_USER);
+            return;
+        }
+
+        final UserIdentity currentUser = CurrentUserState.current();
+        if (currentUser == null) {
+            MDC.remove(MDC_CURRENT_USER);
+            MDC.remove(MDC_ORIGINAL_USER);
+        } else {
+            MDC.put(MDC_CURRENT_USER, currentUser.getUserIdentityForAudit());
+        }
+    }
+
+    private boolean isUserMdcEnabled() {
+        if (authorisationConfigProvider == null) {
+            return false;
+        }
+        final AuthorisationConfig config = authorisationConfigProvider.get();
+        return config != null && config.isLogUserInMdc();
     }
 
     private void elevatePermissions() {

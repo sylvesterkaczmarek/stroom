@@ -29,12 +29,17 @@ import stroom.util.shared.PermissionException;
 import stroom.util.shared.UserRef;
 
 import org.assertj.core.api.Assertions;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.MDC;
+
+import jakarta.inject.Provider;
 
 import java.util.EnumSet;
 import java.util.Objects;
@@ -68,15 +73,30 @@ public class TestSecurityContextImpl {
     private UserAppPermissionsCache mockUserAppPermissionsCache;
     @Mock
     private UserIdentityFactory mockUserIdentityFactory;
+    @Mock
+    private Provider<AuthorisationConfig> mockAuthorisationConfigProvider;
+    @Mock
+    private AuthorisationConfig mockAuthorisationConfig;
 
     @InjectMocks
     private SecurityContextImpl securityContextImpl;
+
+    @BeforeEach
+    void setUpMdcConfig() {
+        Mockito.lenient().when(mockAuthorisationConfigProvider.get()).thenReturn(mockAuthorisationConfig);
+    }
+
+    @AfterEach
+    void clearMdc() {
+        MDC.clear();
+    }
 
     @Test
     void test() {
         assertThatThrownBy(
                 () -> {
                     final SecurityContext securityContext = new SecurityContextImpl(
+                            null,
                             null,
                             null,
                             null,
@@ -206,6 +226,36 @@ public class TestSecurityContextImpl {
         } else {
             securityContextImpl.asUser(userIdentity, asUserWork);
         }
+    }
+
+
+    @Test
+    void testUserMdcTracksNestedUserContexts() {
+        Mockito.when(mockAuthorisationConfig.isLogUserInMdc()).thenReturn(true);
+
+        securityContextImpl.asUser(USER_1, () -> {
+            assertThat(MDC.get(SecurityContextImpl.MDC_CURRENT_USER)).isEqualTo("user1");
+            assertThat(MDC.get(SecurityContextImpl.MDC_ORIGINAL_USER)).isEqualTo("user1");
+
+            securityContextImpl.asUser(PROC_USER, () -> {
+                assertThat(MDC.get(SecurityContextImpl.MDC_CURRENT_USER)).isEqualTo("proc_user");
+                assertThat(MDC.get(SecurityContextImpl.MDC_ORIGINAL_USER)).isEqualTo("user1");
+            });
+
+            assertThat(MDC.get(SecurityContextImpl.MDC_CURRENT_USER)).isEqualTo("user1");
+            assertThat(MDC.get(SecurityContextImpl.MDC_ORIGINAL_USER)).isEqualTo("user1");
+        });
+
+        assertThat(MDC.get(SecurityContextImpl.MDC_CURRENT_USER)).isNull();
+        assertThat(MDC.get(SecurityContextImpl.MDC_ORIGINAL_USER)).isNull();
+    }
+
+    @Test
+    void testUserMdcIsDisabledByDefault() {
+        securityContextImpl.asUser(USER_1, () -> {
+            assertThat(MDC.get(SecurityContextImpl.MDC_CURRENT_USER)).isNull();
+            assertThat(MDC.get(SecurityContextImpl.MDC_ORIGINAL_USER)).isNull();
+        });
     }
 
     @Test
